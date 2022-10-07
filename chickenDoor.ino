@@ -190,7 +190,7 @@ bool openDoor() {
     return false;
   }
   doorMonitor = false;  //false is open
-  bot.sendMessage(CHAT_ID, combineMessages("The door open is now open as of: " + makeDate() + " " + timeClient.getEpochTime()));
+  bot.sendMessage(CHAT_ID, combineMessages("The door is now open as of: " + makeDate() + " " + timeClient.getFormattedTime()));
   return true;
 }
 
@@ -208,7 +208,7 @@ bool closeDoor() {
     return false; 
   }
   doorMonitor = true; // true is closed
-  combineMessages("The door open is now closed as of: " + makeDate() + " " + timeClient.getEpochTime());
+  combineMessages("The door is now closed as of: " + makeDate() + " " + timeClient.getFormattedTime());
   return true;
 }
 

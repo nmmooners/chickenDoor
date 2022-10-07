@@ -20,16 +20,14 @@ bool ledState = LOW;
 
 const int outRelay = 5;
 const int inRelay = 4;     
-bool doorMonitor = true;  //true == door closed, false == door open   
+int doorMonitor = LOW;  //low == open, high == closed   
 const int DOOR_SENSOR_PIN = 14; // Arduino pin connected to door sensor's pin
+const int openCloseButton = 2;
+const int buttonLight = 0;
 
 // NTP Client
-
-#define MY_NTP_SERVER "time1.google.com"   
-#define MY_TZ "CET-1CEST,M3.5.0/02,M10.5.0/03";
 WiFiUDP ntpUDP;
 long requestTime = 0;
-long timeZone = -25200;
 long results_sunrise = 0;
 long results_sunset = 0;
 NTPClient timeClient(ntpUDP, "time1.google.com", timeZone);
@@ -55,6 +53,16 @@ String combineMessages(String inMessage) {
   replyMessage += "/open to open the door \n\n";
   replyMessage += "/close to close the door \n\n";
   return replyMessage;
+}
+
+String makeDate(){
+  String timeMess = "";
+    timeMess += month(timeClient.getEpochTime());
+    timeMess += "/";
+    timeMess += day(timeClient.getEpochTime());
+    timeMess += "/";
+    timeMess += year(timeClient.getEpochTime());
+    return timeMess;
 }
 
 // Handle what happens when you receive new messages
@@ -109,62 +117,130 @@ void handleNewMessages(int numNewMessages) {
     }
 
     if(text == "/door") {
-      bot.sendMessage(chat_id, combineMessages("The door is: " + doorMonitor), "");
+      String doorStatus = "";
+      if(doorMonitor == HIGH){
+        doorStatus = "CLOSED";
+      }
+      else
+      {
+        doorStatus = "OPEN";
+      }
+      bot.sendMessage(chat_id, combineMessages("The door is: " + doorStatus), "");
     }
 
     if(text == "/close") {
-      bot.sendMessage(chat_id, combineMessages("Closing Door"), "");
-      closeDoor(5000);
-      bot.sendMessage(chat_id, combineMessages("The door is: " + doorMonitor), "");
+      if(doorStatus() == HIGH){
+        bot.sendMessage(chat_id, combineMessages("The door is already CLOSED."), "");
+      }
+      else
+      {
+        bot.sendMessage(chat_id, "The door is: OPEN. Closing the door", "");
+        if(!closeDoor())
+        {
+          // Serial.println("SOMETHING WENT WRONG AND THE DOOR IS NOT CLOSED AFTER TRYING TO CLOSE");
+          // bot.sendMessage(chat_id, "The door is not closed, something went wrong.");
+          return;
+        }
+        // closeDoor(5000);
+        // if(doorStatus() != HIGH){ // something went wrong
+        //   Serial.println("SOMETHING WENT WRONG AND THE DOOR IS NOT CLOSED AFTER TRYING TO CLOSE");
+        //   bot.sendMessage(chat_id, "The door is not closed, something went wrong.");
+        //   break;
+        // }
+        bot.sendMessage(chat_id, combineMessages("The door is: CLOSED"), "");
+      }
     }
 
     if(text == "/open") {
-      bot.sendMessage(chat_id, combineMessages("Opening Door"), "");
-      openDoor(5000);
-      bot.sendMessage(chat_id, combineMessages("The door is: " + doorMonitor), "");
+      if(doorMonitor == LOW) {
+        bot.sendMessage(chat_id, combineMessages("The door is already OPENED."), "");
+      }
+      else
+      {
+        bot.sendMessage(chat_id, "The door is: CLOSED. Opening the Door", "");
+        if(!openDoor()){
+          // Serial.println("SOMETHING WENT WRONG AND THE DOOR IS NOT OPENED AFTER TRYING TO OPEN");
+          // bot.sendMessage(chat_id, "The door is not open, something went wrong.");
+          return;
+        }
+        // closeDoor(5000);
+        // if(doorStatus() != LOW){
+        //   Serial.println("SOMETHING WENT WRONG AND THE DOOR IS NOT OPENED AFTER TRYING TO OPEN");
+        //   bot.sendMessage(chat_id, "The door is not open, something went wrong.");
+        //   break;
+        // }
+        bot.sendMessage(chat_id, combineMessages("The door is OPEN"), "");
+      }      
     }
 
   }
 }
 
-void openDoor(int howLong) {
+bool openDoor() {
   digitalWrite(outRelay, HIGH);
   digitalWrite(inRelay, LOW);
-  delay(howLong); // 35 seconds to fully open
-  doorMonitor = false;  //false is open
+  delay(5000); // 35 seconds to fully open
+  
   //turn off power to motor
   digitalWrite(outRelay, HIGH);// HIGH is off
   digitalWrite(inRelay, HIGH);// HIGH is off
+  if(doorStatus() != LOW){
+    Serial.println("SOMETHING WENT WRONG AND THE DOOR IS NOT OPENED AFTER TRYING TO OPEN");
+    bot.sendMessage(CHAT_ID, combineMessages("The door is NOT open, something went wrong at: " + makeDate()));
+    return false;
+  }
+  doorMonitor = false;  //false is open
+  bot.sendMessage(CHAT_ID, combineMessages("The door open is now open as of: " + makeDate() + " " + timeClient.getEpochTime()));
+  return true;
 }
 
-void closeDoor(int howLong) {
+bool closeDoor() {
   digitalWrite(outRelay, LOW);
   digitalWrite(inRelay, HIGH);
-  delay(howLong);
-  doorMonitor = true; // true is closed
+  delay(5000);
+ 
   //turn off power to motor
   digitalWrite(outRelay, HIGH); // HIGH is off
   digitalWrite(inRelay, HIGH); // HIGH is off
+  if(doorStatus() != HIGH){
+    Serial.println("SOMETHING WENT WRONG AND THE DOOR IS NOT CLOSED AFTER TRYING TO CLOSE");
+    bot.sendMessage(CHAT_ID, combineMessages("The door is NOT closed, something went wrong at: " + makeDate() + " " +timeClient.getFormattedTime()));
+    return false; 
+  }
+  doorMonitor = true; // true is closed
+  combineMessages("The door open is now closed as of: " + makeDate() + " " + timeClient.getEpochTime());
+  return true;
 }
 
- 
+int doorStatus() {  //low/false == open, high/true == closed
+  if (digitalRead(DOOR_SENSOR_PIN) == LOW) {
+      doorMonitor = LOW;
+      Serial.println("The door is open");
+      return doorMonitor;
+    } else {
+      doorMonitor = HIGH;
+      Serial.println("The door is closed");
+      return doorMonitor;
+    }
+}
+
 void setup() {
   Serial.begin(115200);
   pinMode(outRelay, OUTPUT);
   pinMode(inRelay, OUTPUT);
+  pinMode(buttonLight, OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT); 
+  pinMode(DOOR_SENSOR_PIN, INPUT_PULLUP);
+  pinMode(openCloseButton, INPUT_PULLUP);
   delay(100);
-  openDoor(1000);
-  closeDoor(1000);
-
-
-  //need to read in the door monitor to check where the door is
+  digitalWrite(outRelay, HIGH);
+  digitalWrite(inRelay, HIGH);
+  digitalWrite(buttonLight, HIGH);
 
   // #ifdef ESP8266
     // configTime(0, 0, "pool.ntp.org", "time.google.com");      // get UTC time via NTP
     clientSecure.setTrustAnchors(&cert); // Add root certificate for api.telegram.org
-  // #endif
-  
-  pinMode(LED_BUILTIN, OUTPUT);             
+  // #endif            
 
   Serial.println("Connecting to ");
   Serial.println(ssid);
@@ -198,11 +274,11 @@ void setup() {
   timeClient.begin();
   timeClient.forceUpdate();
 
-  if(timeClient.getEpochTime() > results_sunrise && timeClient.getEpochTime() < results_sunset){ // and add to check the door is already open
+  if(timeClient.getEpochTime() > results_sunrise && timeClient.getEpochTime() < results_sunset && doorStatus() == LOW){ // and add to check the door is already open
     //set to todays date as the door is alreay been open. as if power restarted in the middle of the day
     lastDayMorningOpened = timeClient.getDay(); // day function only returns values 0-6 so this at startup indicates that the day has not been checked at start up.
   }
-  if(timeClient.getEpochTime() > results_sunset) { // check if the door is closed
+  if(timeClient.getEpochTime() > results_sunset  && doorStatus() == HIGH) { // check if the door is closed
     lastDayNightClosed = timeClient.getDay(); // already past sunset and door is closed
   }
    
@@ -212,9 +288,37 @@ void setup() {
 void loop() {
   
   // server.handleClient();
+
+  int buttonState;
+  buttonState = digitalRead(openCloseButton);
+  if(buttonState == LOW) { //button pressed
+    Serial.println("button was pressed");
+    if(doorStatus()) {
+      Serial.println("button pressed, opening door");
+      openDoor();
+      // Serial.println("button is not pressed---------------------");
+      // digitalWrite(buttonLight, LOW);  //door closing/opening will do this. this is just for testing.
+    }
+    else {
+      Serial.println("button pressed, closing door");
+      closeDoor();
+      // Serial.println("button is pressed+++++++++++++++++++++");
+      // digitalWrite(buttonLight, HIGH); //door closing/opening will do this. this is just for testing. 
+    }
+  }
+
+  if(doorStatus())
+  {
+    digitalWrite(buttonLight, HIGH);
+  }
+  else
+  {
+    digitalWrite(buttonLight, LOW);
+  }
+ 
   
   if(dateInfoChecked == false){
-    if(getSunUpDown() == "200") {
+    if(getSunUpDown() == "200") {      
       String botMess = "got today's sun up: ";
       botMess += hour(results_sunrise);
       botMess += ":";
@@ -224,6 +328,8 @@ void loop() {
       botMess += ":";
       botMess += minute(results_sunset);
       botMess += ". Current time: ";
+      botMess += makeDate();
+      botMess += " ";
       botMess += timeClient.getFormattedTime();
       bot.sendMessage(CHAT_ID, combineMessages(botMess), "");
       dateInfoChecked = true;
@@ -233,6 +339,7 @@ void loop() {
     }
     else{
       Serial.println("Was not able to get up down times.");
+      bot.sendMessage(CHAT_ID, combineMessages("TIMES NOT RETIEVED!!!!!"));
       dateInfoChecked = false;
     }
   }
@@ -241,13 +348,15 @@ void loop() {
   if(currentMillis - previousMillis > interval){
     previousMillis = currentMillis;
 
+    doorStatus();
     if(timeClient.getEpochTime() > results_sunrise && timeClient.getEpochTime() < results_sunset){
-      Serial.println("The sun is up.");
+      Serial.println("The sun is up at : " + String(timeClient.getFormattedTime()));
     }
     else{
-      Serial.println("the sun is down");
+      Serial.println("the sun is down : " + String(timeClient.getFormattedTime()));
     }
-  }   
+  }  
+
   if(timeClient.getHours() == 3 && dateInfoChecked == true && timeClient.getDay() != lastDayTimeChecked) {
     dateInfoChecked = false;
   }
@@ -255,10 +364,9 @@ void loop() {
   
 
   if(timeClient.getEpochTime() >= results_sunrise && timeClient.getEpochTime() < results_sunrise + 300  && morningOpened == false && lastDayMorningOpened != timeClient.getDay()){
-    // openDoor(35000);
     Serial.println("The sun is up and the door is not open. opening door now" + timeClient.getFormattedTime());
-    bot.sendMessage(CHAT_ID, combineMessages("The Door is opened at : " + timeClient.getFormattedTime()));
-    openDoor(35000);
+    // bot.sendMessage(CHAT_ID, combineMessages("The Door is opened at : " + timeClient.getFormattedTime()));
+    openDoor();
     //need to check door sensor
     doorMonitor = false; // this is just for testing
     lastDayMorningOpened = timeClient.getDay();
@@ -268,10 +376,10 @@ void loop() {
   if(timeClient.getEpochTime() >= results_sunset && timeClient.getEpochTime() < results_sunset + 300 && nightClosed == false && lastDayNightClosed != timeClient.getDay()){
     // closeDoor(35000);
     Serial.println("The sun is down and the door is not closed. closing door now at " + timeClient.getFormattedTime());
-    bot.sendMessage(CHAT_ID, combineMessages("The Door is closed at : " + timeClient.getFormattedTime()));
-    closeDoor(35000);
+    // bot.sendMessage(CHAT_ID, combineMessages("The Door is closed at : " + timeClient.getFormattedTime()));
+    closeDoor();
     //need to check door sensor
-    doorMonitor = true; // this is for testing
+    // doorMonitor = true; // this is for testing
     lastDayNightClosed = timeClient.getDay();
     nightClosed = true;
   }
